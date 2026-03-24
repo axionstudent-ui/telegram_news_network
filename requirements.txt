@@ -6,3 +6,4 @@ motor==3.6.0
 thefuzz==0.22.1
 python-dotenv==1.0.1
 aiohttp
+feedparser

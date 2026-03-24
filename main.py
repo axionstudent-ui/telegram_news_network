@@ -5,6 +5,7 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from core.config import API_ID, API_HASH, BOT_TOKEN, SESSION_STRING, SOURCE_CHANNELS, TARGET_CHANNEL
 from db.database import is_duplicate_hash, get_recent_posts, save_post
+from sources.external import fetch_rss_news
 from ai.processor import translate_text, is_duplicate_fuzzy, analyze_priority_and_country, clean_source_text
 from media.generator import create_image, create_video
 from aiohttp import web
@@ -57,8 +58,34 @@ async def worker():
             if vid and os.path.exists(vid): os.remove(vid)
             post_queue.task_done()
 
+async def rss_polling_loop():
+    """Polls external RSS feeds every 30 seconds for breaking news."""
+    print("Starting RSS Polling Loop (Interval: 30s)...")
+    while True:
+        try:
+            news_items = await fetch_rss_news()
+            for item in news_items:
+                # Wrap each RSS item into a dummy object for process_message
+                class DummyMsg:
+                    def __init__(self, text):
+                        self.text = text
+                        self.photo = None
+                        self.media = None
+                
+                class DummyChat:
+                    def __init__(self, title):
+                        self.title = title
+                        self.broadcast = True
+                        self.username = ""
+                
+                await process_message(DummyMsg(item['text']), DummyChat(item['source_name']))
+        except Exception as e:
+            print(f"RSS Loop Error: {e}")
+        await asyncio.sleep(30)
+
 bot.loop.create_task(worker())
 bot.loop.create_task(start_dummy_server())
+bot.loop.create_task(rss_polling_loop())
 
 NEWS_KEYWORDS = ["news", "tv", "channel", "press", "agency", "media", "world", "global", "breaking", 
                  "اخبار", "الجزيرة", "العربية", "بي بي سي", "عاجل", "وكالة", "بث", "ستلايت", "قناة"]

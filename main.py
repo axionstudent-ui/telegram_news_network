@@ -65,17 +65,18 @@ async def process_message(msg, chat_entity=None):
     if not TARGET_CHANNEL: return
 
     chat = chat_entity
+    
+    # Accept ONLY messages from Broadcast Channels (Bypass DMs/Groups)
+    if not getattr(chat, 'broadcast', False):
+        return
+        
     username = getattr(chat, 'username', '') or ''
     title = getattr(chat, 'title', '') or ''
     
-    matched = False
-    for ch in SOURCE_CHANNELS:
-        c = ch.replace('@', '').lower().strip()
-        if  c == username.lower() or c in title.lower():
-            matched = True
-            break
-            
-    if not matched: return
+    # Exclude our own target channel to prevent loopbacks
+    target_clean = TARGET_CHANNEL.replace('@', '').lower().strip()
+    if username and target_clean in username.lower():
+        return
 
     text = msg.text or ""
     if not text.strip() and not msg.media: return
@@ -125,15 +126,20 @@ async def handle_incoming(event):
     await process_message(event.message, chat)
 
 async def startup_test():
-    print("Fetching the latest news item from all sources to jumpstart the channel...")
+    print("Fetching the latest news item from all subscribed channels to jumpstart...")
     try:
-        for ch in SOURCE_CHANNELS:
-            try:
-                chat = await scraper.get_entity(ch)
-                async for msg in scraper.iter_messages(chat, limit=1):
-                    await process_message(msg, chat)
-            except Exception as e:
-                print(f"Startup fetch error for {ch}: {e}")
+        count = 0
+        async for dialog in scraper.iter_dialogs():
+            if count >= 40: break # Grab up to 40 latest news max for jumpstart
+            if dialog.is_channel and not dialog.is_group:
+                if getattr(dialog.entity, 'username', '').lower() == TARGET_CHANNEL.replace('@', '').lower():
+                    continue
+                try:
+                    async for msg in scraper.iter_messages(dialog.entity, limit=1):
+                        await process_message(msg, dialog.entity)
+                        count += 1
+                except Exception:
+                    pass
     except Exception as e:
         print(f"Startup loop error: {e}")
 

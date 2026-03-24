@@ -1,11 +1,13 @@
 import os
 import asyncio
+import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from core.config import API_ID, API_HASH, BOT_TOKEN, SESSION_STRING, SOURCE_CHANNELS, TARGET_CHANNEL
 from db.database import is_duplicate_hash, get_recent_posts, save_post
-from ai.processor import translate_text, is_duplicate_fuzzy, analyze_priority_and_country
+from ai.processor import translate_text, is_duplicate_fuzzy, analyze_priority_and_country, clean_source_text
 from media.generator import create_image, create_video
+from aiohttp import web
 
 print("Initializing Advanced Global News Automation Bot...")
 
@@ -21,8 +23,6 @@ else:
     scraper = bot
 
 post_queue = asyncio.Queue()
-
-from aiohttp import web
 
 async def health_check(request):
     return web.Response(text="Bot is healthy and scraping")
@@ -49,7 +49,6 @@ async def worker():
                     await bot.send_file(target, vid, caption=caption)
             else:
                 await bot.send_message(target, caption)
-                
             await asyncio.sleep(5)
         except Exception as e:
             print(f"Worker Error: {e}")
@@ -61,25 +60,37 @@ async def worker():
 bot.loop.create_task(worker())
 bot.loop.create_task(start_dummy_server())
 
+NEWS_KEYWORDS = ["news", "tv", "channel", "press", "agency", "media", "world", "global", "breaking", 
+                 "اخبار", "الجزيرة", "العربية", "بي بي سي", "عاجل", "وكالة", "بث", "ستلايت", "قناة"]
+
 async def process_message(msg, chat_entity=None):
     if not TARGET_CHANNEL: return
 
     chat = chat_entity
     
-    # Accept ONLY messages from Broadcast Channels (Bypass DMs/Groups)
+    # Check for official broadcast only
     if not getattr(chat, 'broadcast', False):
         return
         
-    username = getattr(chat, 'username', '') or ''
-    title = getattr(chat, 'title', '') or ''
+    username = (getattr(chat, 'username', '') or '').lower()
+    title = (getattr(chat, 'title', '') or '').lower()
     
-    # Exclude our own target channel to prevent loopbacks
-    target_clean = TARGET_CHANNEL.replace('@', '').lower().strip()
-    if username and target_clean in username.lower():
+    # Privacy check: Ignore personal channels by looking for news keywords in title/username
+    is_official = any(kw in username or kw in title for kw in NEWS_KEYWORDS)
+    if not is_official:
         return
 
-    text = msg.text or ""
-    if not text.strip() and not msg.media: return
+    # Exclude our own target channel
+    target_clean = TARGET_CHANNEL.replace('@', '').lower().strip()
+    if username and target_clean in username:
+        return
+
+    raw_text = msg.text or ""
+    if not raw_text.strip() and not msg.media: return
+
+    # -> CLEANING (No links, no personal info)
+    text = clean_source_text(raw_text)
+    if not text: return
 
     # -> 3-Layer Duplicate Prevention
     is_dup_hash, text_hash = await is_duplicate_hash(text)
@@ -89,26 +100,25 @@ async def process_message(msg, chat_entity=None):
     recent_texts = [p.get("text", "") for p in recent_posts]
     if is_duplicate_fuzzy(text, recent_texts): return
         
-    source_name = title or 'Network API'
+    source_name = getattr(chat, 'title', 'World Source')
     
     # -> AI Enhancement
     priority, country = analyze_priority_and_country(text, source_name)
     ar_text, en_text = translate_text(text)
 
+    # FINAL CAPTION (Only target channel link allowed)
     caption = (
         f"{priority}\n\n"
         f"{country}\n\n"
-        f"🇮🇶 بالعربية:\n{ar_text}\n\n"
-        f"🇺🇸 English:\n{en_text}\n\n"
+        f"🇮🇶 {ar_text}\n\n"
+        f"🇺🇸 {en_text}\n\n"
         f"📡 المصدر: {source_name}\n"
         f"━━━━━━━━━━━━━━\n"
         f"🌍 الأخبار العالمية | World News\n"
         f"🔗 t.me/{TARGET_CHANNEL.replace('@', '')}"
     )
 
-    media_path = None
-    vid_path = None
-    processed_img = None
+    media_path, vid_path, processed_img = None, None, None
 
     if msg.photo:
         media_path = await msg.download_media("temp_dl.jpg")
@@ -130,7 +140,7 @@ async def startup_test():
     try:
         count = 0
         async for dialog in scraper.iter_dialogs():
-            if count >= 40: break # Grab up to 40 latest news max for jumpstart
+            if count >= 30: break
             if dialog.is_channel and not dialog.is_group:
                 if getattr(dialog.entity, 'username', '').lower() == TARGET_CHANNEL.replace('@', '').lower():
                     continue
@@ -138,10 +148,8 @@ async def startup_test():
                     async for msg in scraper.iter_messages(dialog.entity, limit=1):
                         await process_message(msg, dialog.entity)
                         count += 1
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"Startup loop error: {e}")
+                except Exception: pass
+    except Exception as e: print(f"Startup loop error: {e}")
 
 # Run startup script before listening
 if SESSION_STRING:
@@ -149,4 +157,3 @@ if SESSION_STRING:
     bot.loop.run_until_complete(scraper.run_until_disconnected())
 else:
     bot.loop.run_until_complete(startup_test())
-    bot.run_until_disconnected()

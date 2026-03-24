@@ -22,7 +22,25 @@ def is_duplicate_fuzzy(new_text, recent_texts):
             return True
     return False
 
-def analyze_priority_and_country(text, source):
+import re
+
+def clean_source_text(text):
+    """Strips all URLs, mentions, and potential personal data."""
+    if not text: return ""
+    
+    # 1. Remove all HTTP/HTTPS and t.me links
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r't\.me/\S+', '', text)
+    
+    # 2. Remove @mentions (potential personal handles)
+    text = re.sub(r'@\w+', '', text)
+    
+    # 3. Clean extra whitespace
+    text = ' '.join(text.split())
+    
+    return text
+
+def analyze_priority_and_country(text, source_name):
     """Scoring and categorization"""
     text_lower = text.lower()
     

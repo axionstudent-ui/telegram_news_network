@@ -45,12 +45,26 @@ async def worker():
 
 bot.loop.create_task(worker())
 
-@scraper.on(events.NewMessage(chats=SOURCE_CHANNELS if SOURCE_CHANNELS else None))
+@scraper.on(events.NewMessage())
 async def handle_incoming(event):
-
     if not TARGET_CHANNEL: return
 
+    # Filter incoming signals dynamically instead of risking unmapped strings
+    chat = await event.get_chat()
+    username = getattr(chat, 'username', '') or ''
+    title = getattr(chat, 'title', '') or ''
+    
+    matched = False
+    for ch in SOURCE_CHANNELS:
+        c = ch.replace('@', '').lower().strip()
+        if  c == username.lower() or c in title.lower():
+            matched = True
+            break
+            
+    if not matched: return
+
     text = event.text or ""
+
     if not text.strip() and not event.media: return
 
     # -> 3-Layer Duplicate Prevention

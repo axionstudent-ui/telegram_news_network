@@ -82,6 +82,26 @@ async def rss_polling_loop():
         except Exception as e:
             print(f"RSS Loop Error: {e}")
         await asyncio.sleep(30)
+# Instant memory cache to prevent rapid-fire duplicates
+local_dedup_cache = set()
+
+async def worker():
+    while True:
+        task = await post_queue.get()
+        try:
+            target, media, caption = task
+            if media:
+                await bot.send_file(target, media, caption=caption)
+            else:
+                await bot.send_message(target, caption)
+            await asyncio.sleep(2) # Reduced delay for speed
+        except Exception as e:
+            print(f"Worker Error: {e}")
+        finally:
+            if media and os.path.exists(media): 
+                try: os.remove(media)
+                except: pass
+            post_queue.task_done()
 
 bot.loop.create_task(worker())
 bot.loop.create_task(start_dummy_server())
@@ -92,25 +112,21 @@ NEWS_KEYWORDS = ["news", "tv", "channel", "press", "agency", "media", "world", "
 
 async def process_message(msg, chat_entity=None):
     if not TARGET_CHANNEL: return
-
     chat = chat_entity
     
     # Check for official broadcast only
-    if not getattr(chat, 'broadcast', False):
-        return
+    if not getattr(chat, 'broadcast', False): return
         
     username = (getattr(chat, 'username', '') or '').lower()
     title = (getattr(chat, 'title', '') or '').lower()
     
-    # Privacy check: Ignore personal channels by looking for news keywords in title/username
+    # Privacy check: Ignore personal channels
     is_official = any(kw in username or kw in title for kw in NEWS_KEYWORDS)
-    if not is_official:
-        return
+    if not is_official: return
 
     # Exclude our own target channel
     target_clean = TARGET_CHANNEL.replace('@', '').lower().strip()
-    if username and target_clean in username:
-        return
+    if username and target_clean in username: return
 
     raw_text = msg.text or ""
     if not raw_text.strip() and not msg.media: return
@@ -119,17 +135,18 @@ async def process_message(msg, chat_entity=None):
     text = clean_source_text(raw_text)
     if not text: return
 
-    # -> 3-Layer Duplicate Prevention
+    # -> 3-Layer Duplicate Prevention (1. Memory 2. DB Hash 3. DB Fuzzy)
     is_dup_hash, text_hash = await is_duplicate_hash(text)
-    if is_dup_hash: return
+    if text_hash in local_dedup_cache or is_dup_hash: return
+    
+    local_dedup_cache.add(text_hash)
+    if len(local_dedup_cache) > 500: local_dedup_cache.pop() # Keep cache lean
 
     recent_posts = await get_recent_posts(100)
     recent_texts = [p.get("text", "") for p in recent_posts]
     if is_duplicate_fuzzy(text, recent_texts): return
         
     source_name = getattr(chat, 'title', 'World Source')
-    
-    # -> AI Enhancement
     priority, country = analyze_priority_and_country(text, source_name)
     ar_text, en_text = translate_text(text)
 
@@ -145,15 +162,12 @@ async def process_message(msg, chat_entity=None):
         f"🔗 t.me/{TARGET_CHANNEL.replace('@', '')}"
     )
 
-    media_path, vid_path, processed_img = None, None, None
-
+    media_path = None
     if msg.photo:
         media_path = await msg.download_media("temp_dl.jpg")
-        processed_img = create_image(media_path, source_name)
-        vid_path = create_video(processed_img, ar_text)
 
-    # Dispatch to Publisher queue
-    await post_queue.put((TARGET_CHANNEL, processed_img, vid_path, caption))
+    # Dispatch to Publisher queue (Simple & Fast)
+    await post_queue.put((TARGET_CHANNEL, media_path, caption))
     await save_post(text, text_hash, source_name)
 
 

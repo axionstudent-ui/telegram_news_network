@@ -1,33 +1,41 @@
 import os
 import asyncio
 from telethon import TelegramClient, events
-from core.config import API_ID, API_HASH, BOT_TOKEN, SOURCE_CHANNELS, TARGET_CHANNEL
+from telethon.sessions import StringSession
+from core.config import API_ID, API_HASH, BOT_TOKEN, SESSION_STRING, SOURCE_CHANNELS, TARGET_CHANNEL
 from db.database import is_duplicate_hash, get_recent_posts, save_post
 from ai.processor import translate_text, is_duplicate_fuzzy, analyze_priority_and_country
 from media.generator import create_image, create_video
 
 print("Initializing Advanced Global News Automation Bot...")
 
-client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+# 1. Publisher Bot (Posts to your channel)
+bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# Queue system for delay management to avoid spam bursts
+# 2. Scraper Client (Reads from public channels using your Session)
+if SESSION_STRING:
+    print("Starting Scraper Client using User Session...")
+    scraper = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH).start()
+else:
+    print("WARNING: SESSION_STRING not found. Bot will only be able to read channels where it is an admin!")
+    scraper = bot
+
 post_queue = asyncio.Queue()
 
 async def worker():
-    """Background loop to process and post gracefully"""
     while True:
         task = await post_queue.get()
         try:
             target, media, vid, caption = task
             if media:
-                await client.send_file(target, media, caption=caption)
+                await bot.send_file(target, media, caption=caption)
                 if vid and os.path.exists(vid):
-                    await asyncio.sleep(2) # brief delay between media
-                    await client.send_file(target, vid, caption=caption)
+                    await asyncio.sleep(2)
+                    await bot.send_file(target, vid, caption=caption)
             else:
-                await client.send_message(target, caption)
+                await bot.send_message(target, caption)
                 
-            await asyncio.sleep(5) # Rate limiting queue
+            await asyncio.sleep(5)
         except Exception as e:
             print(f"Worker Error: {e}")
         finally:
@@ -35,11 +43,11 @@ async def worker():
             if vid and os.path.exists(vid): os.remove(vid)
             post_queue.task_done()
 
-# Add worker to event loop
-client.loop.create_task(worker())
+bot.loop.create_task(worker())
 
-@client.on(events.NewMessage(chats=SOURCE_CHANNELS if SOURCE_CHANNELS else None))
+@scraper.on(events.NewMessage(chats=SOURCE_CHANNELS if SOURCE_CHANNELS else None))
 async def handle_incoming(event):
+
     if not TARGET_CHANNEL: return
 
     text = event.text or ""
@@ -88,14 +96,9 @@ async def handle_incoming(event):
     # Dispatch to Publisher queue
     await post_queue.put((TARGET_CHANNEL, processed_img, vid_path, caption))
 
-    # -> Save to DB mapping
     await save_post(text, text_hash, source_name)
 
-    # -> Clear memory files directly (No persistent local storage!)
-    # We clean up inside the orchestrator right after enqueueing it?
-    # Actually, we should clean it AFTER posting so we schedule cleanup loosely or inline.
-    # For a robust stateless queue, we'd clean after await file sends inside the worker, 
-    # but since local instance creates it, we can defer deletion.
-    # I'll let worker handle cleanup or just delete them after a delay for safety.
-
-client.run_until_disconnected()
+if SESSION_STRING:
+    bot.loop.run_until_complete(scraper.run_until_disconnected())
+else:
+    bot.run_until_disconnected()

@@ -45,12 +45,10 @@ async def worker():
 
 bot.loop.create_task(worker())
 
-@scraper.on(events.NewMessage())
-async def handle_incoming(event):
+async def process_message(msg, chat_entity=None):
     if not TARGET_CHANNEL: return
 
-    # Filter incoming signals dynamically instead of risking unmapped strings
-    chat = await event.get_chat()
+    chat = chat_entity
     username = getattr(chat, 'username', '') or ''
     title = getattr(chat, 'title', '') or ''
     
@@ -63,25 +61,18 @@ async def handle_incoming(event):
             
     if not matched: return
 
-    text = event.text or ""
-
-    if not text.strip() and not event.media: return
+    text = msg.text or ""
+    if not text.strip() and not msg.media: return
 
     # -> 3-Layer Duplicate Prevention
-    # 1. Exact Hash
     is_dup_hash, text_hash = await is_duplicate_hash(text)
-    if is_dup_hash:
-        print("Blocked: Hash Duplicate")
-        return
+    if is_dup_hash: return
 
-    # 2. Text Similarity (ratio > 0.85)
     recent_posts = await get_recent_posts(100)
     recent_texts = [p.get("text", "") for p in recent_posts]
-    if is_duplicate_fuzzy(text, recent_texts):
-        print("Blocked: Similarity > 0.85")
-        return
+    if is_duplicate_fuzzy(text, recent_texts): return
         
-    source_name = getattr(event.chat, 'title', 'Network API') if event.chat else 'Network API'
+    source_name = title or 'Network API'
     
     # -> AI Enhancement
     priority, country = analyze_priority_and_country(text, source_name)
@@ -102,17 +93,38 @@ async def handle_incoming(event):
     vid_path = None
     processed_img = None
 
-    if event.photo:
-        media_path = await event.download_media("temp_dl.jpg")
+    if msg.photo:
+        media_path = await msg.download_media("temp_dl.jpg")
         processed_img = create_image(media_path, source_name)
         vid_path = create_video(processed_img, ar_text)
 
     # Dispatch to Publisher queue
     await post_queue.put((TARGET_CHANNEL, processed_img, vid_path, caption))
-
     await save_post(text, text_hash, source_name)
 
+
+@scraper.on(events.NewMessage())
+async def handle_incoming(event):
+    chat = await event.get_chat()
+    await process_message(event.message, chat)
+
+async def startup_test():
+    print("Fetching the latest news item from all sources to jumpstart the channel...")
+    try:
+        for ch in SOURCE_CHANNELS:
+            try:
+                chat = await scraper.get_entity(ch)
+                async for msg in scraper.iter_messages(chat, limit=1):
+                    await process_message(msg, chat)
+            except Exception as e:
+                print(f"Startup fetch error for {ch}: {e}")
+    except Exception as e:
+        print(f"Startup loop error: {e}")
+
+# Run startup script before listening
 if SESSION_STRING:
+    bot.loop.run_until_complete(startup_test())
     bot.loop.run_until_complete(scraper.run_until_disconnected())
 else:
+    bot.loop.run_until_complete(startup_test())
     bot.run_until_disconnected()

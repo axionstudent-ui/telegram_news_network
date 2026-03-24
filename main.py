@@ -136,12 +136,27 @@ async def handle_incoming(event):
     await process_message(event.message, chat)
 
 async def startup_test():
-    print("Fetching the latest news item from all subscribed channels to jumpstart...")
+    print("Fetching the latest news item from curated whitelist and subscribed channels...")
     try:
+        seen_entities = set()
         count = 0
+        
+        # 1. Fetch from curated whitelist first (High Priority)
+        for ch in SOURCE_CHANNELS:
+            if count >= 50: break
+            try:
+                entity = await scraper.get_entity(ch)
+                seen_entities.add(getattr(entity, 'id', None))
+                async for msg in scraper.iter_messages(entity, limit=1):
+                    await process_message(msg, entity)
+                    count += 1
+            except Exception: continue
+            
+        # 2. Fallback to other subscribed channels
         async for dialog in scraper.iter_dialogs():
-            if count >= 30: break
+            if count >= 60: break
             if dialog.is_channel and not dialog.is_group:
+                if dialog.id in seen_entities: continue
                 if getattr(dialog.entity, 'username', '').lower() == TARGET_CHANNEL.replace('@', '').lower():
                     continue
                 try:

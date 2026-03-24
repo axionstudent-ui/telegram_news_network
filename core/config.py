@@ -7,30 +7,40 @@ SESSION_STRING = os.environ.get("SESSION_STRING", "")
 DB_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 TRANSLATION_API_KEY = os.environ.get("TRANSLATION_API_KEY", "")
 
-# 6 Specific Regional Channels + Major Global News Networks
+# Comprehensive News Sources (Arab World & Middle East)
 SOURCE_CHANNELS = [
-    # Regional
-    "SabrenNewss",
-    "almawqef_tv",
-    "Alomhoar",
-    "iran_military_capabilities",
-    "TANFITHY",
-    "mayadeenchannel",
+    # Global/International (Arabic Branches)
+    "AJA_News", "aljazeerachannel", "bbcarabic", "CNNArabic", 
+    "AlArabiya", "alhadath", "SkyNewsArabia_sn", "rtarabic", 
+    "France24_ar", "ReutersArabic", "TRTArabi", "Sputnik_Arabic",
+    "UNArabic", "cnbcarabia", "ajplusarabi", "dw_arabic",
     
-    # Global Official Networks (Aljazeera, CNN, BBC, etc)
-    "AJA_News",           # الجزيرة عاجل
-    "aljazeerachannel",   # الجزيرة الاخبارية
-    "bbcarabic",          # بي بي سي نيوز 
-    "CNNArabic",          # سي ان ان عربية
-    "AlArabiya",          # العربية
-    "alhadath",           # الحدث
-    "SkyNewsArabia_sn",   # سكاي نيوز عربية
-    "rtarabic",           # روسيا اليوم
-    "TRTArabi",           # تي ار تي
-    "cnbcarabia",         # سي إن بي سي عربية
-    "ReutersArabic",      # رويترز عربي
-    "France24_ar",        # فرانس ٢٤
-    "UNArabic",           # الأمم المتحدة
-    "Sputnik_Arabic"      # سبوتنيك عربي
+    # Iraq
+    "SabrenNewss", "almawqef_tv", "Alomhoar", "AlghadeerTv", 
+    "Alghadir_News", "Baghdad_Today", "EarthNews_Iq", "AlSumariaNews",
+    "AlShortaNews", "INANewIQ", "SharqiyaNews", "NRT_Arabic",
+    
+    # Palestine
+    "QudsN", "Samanews", "SafaPs", "GazaNowN", "ShehabAgency", 
+    "AlAqsaTVChannel", "Newpalestine", "PNN",
+    
+    # Lebanon
+    "mayadeenchannel", "AlManar_News", "MTVNewsLebanon", "AlJadeedNews",
+    "LbcGroup", "VdlNews", "LebanonFiles",
+    
+    # Gulf (KSA, UAE, Kuwait, Qatar, Bahrain, Oman)
+    "AlArabiya_KSA", "AlMarsd", "SabqNews", "SaudiNews50",
+    "SharjahTV", "AbuDhabiTV", "AlEtihadNews", "AlWatanNews",
+    "EremNews", "GulfNews_Arabic", "KunaArabic", "OmanNewsAgency",
+    
+    # Egypt & North Africa
+    "Cairo24", "AlMasry_AlYoum", "Youm7", "ExtraNewsTv",
+    "AlWatanEgypt", "ShoroukNews", "RTNorthAfrica", "H24Info",
+    "AwanMag", "AlMaghrebia", "MosaiqueFM",
+    
+    # Syria & Iran & Regional
+    "SyriaSANA", "ShamFM", "AlWatanSyria", "iran_military_capabilities", 
+    "ParsTodayArabic", "AlAlamArabic", "AlQudsAlArabi", "AnadoluAr",
+    "MasirahNews", "AnsarollahMC"
 ]
 TARGET_CHANNEL = os.environ.get("TARGET_CHANNEL", "@WorldNewsLi")

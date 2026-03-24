@@ -22,6 +22,21 @@ else:
 
 post_queue = asyncio.Queue()
 
+from aiohttp import web
+
+async def health_check(request):
+    return web.Response(text="Bot is healthy and scraping")
+
+async def start_dummy_server():
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get('PORT', 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Healthcheck server listening on port {port}")
+
 async def worker():
     while True:
         task = await post_queue.get()
@@ -44,6 +59,7 @@ async def worker():
             post_queue.task_done()
 
 bot.loop.create_task(worker())
+bot.loop.create_task(start_dummy_server())
 
 async def process_message(msg, chat_entity=None):
     if not TARGET_CHANNEL: return
